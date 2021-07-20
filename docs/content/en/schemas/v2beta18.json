@@ -748,6 +748,15 @@
           "description": "Kubernetes namespace. Defaults to current namespace in Kubernetes configuration.",
           "x-intellij-html-description": "Kubernetes namespace. Defaults to current namespace in Kubernetes configuration."
         },
+        "nodeSelector": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object",
+          "description": "describes the Kubernetes node selector for the pod.",
+          "x-intellij-html-description": "describes the Kubernetes node selector for the pod.",
+          "default": "{}"
+        },
         "pullSecretMountPath": {
           "type": "string",
           "description": "path the pull secret will be mounted at within the running container.",
@@ -822,6 +831,7 @@
         "dockerConfig",
         "serviceAccount",
         "tolerations",
+        "nodeSelector",
         "annotations",
         "runAsUser",
         "resources",
@@ -3146,13 +3156,26 @@
           "examples": [
             "[\"./test/*\"]"
           ]
+        },
+        "structureTestsArgs": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "description": "additional configuration arguments passed to `container-structure-test` binary.",
+          "x-intellij-html-description": "additional configuration arguments passed to <code>container-structure-test</code> binary.",
+          "default": "[]",
+          "examples": [
+            "[\"--driver=tar\", \"--no-color\", \"-q\"]"
+          ]
         }
       },
       "preferredOrder": [
         "image",
         "context",
         "custom",
-        "structureTests"
+        "structureTests",
+        "structureTestsArgs"
       ],
       "additionalProperties": false,
       "type": "object",

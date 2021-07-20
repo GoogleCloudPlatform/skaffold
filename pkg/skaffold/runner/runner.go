@@ -21,9 +21,9 @@ import (
 	"errors"
 	"io"
 
-	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/deploy/status"
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/graph"
 	latestV1 "github.com/GoogleContainerTools/skaffold/pkg/skaffold/schema/latest/v1"
+	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/schema/util"
 )
 
 const (
@@ -44,15 +44,10 @@ type Runner interface {
 	Dev(context.Context, io.Writer, []*latestV1.Artifact) error
 	Deploy(context.Context, io.Writer, []graph.Artifact) error
 	DeployAndLog(context.Context, io.Writer, []graph.Artifact) error
-	GeneratePipeline(context.Context, io.Writer, []*latestV1.SkaffoldConfig, []string, string) error
+	GeneratePipeline(context.Context, io.Writer, []util.VersionedConfig, []string, string) error
 	HasBuilt() bool
 	HasDeployed() bool
 	Prune(context.Context, io.Writer) error
 	Render(context.Context, io.Writer, []graph.Artifact, bool, string) error
 	Test(context.Context, io.Writer, []graph.Artifact) error
 }
-
-// for testing
-var (
-	NewStatusCheck = status.NewStatusChecker
-)

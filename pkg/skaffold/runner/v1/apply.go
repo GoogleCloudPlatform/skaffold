@@ -18,7 +18,6 @@ package v1
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"time"
 
@@ -39,37 +38,21 @@ func (r *SkaffoldRunner) Apply(ctx context.Context, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	sErr := r.performStatusCheck(ctx, statusCheckOut)
+	sErr := r.deployer.GetStatusMonitor().Check(ctx, statusCheckOut)
 	return sErr
 }
 
 func (r *SkaffoldRunner) applyResources(ctx context.Context, out io.Writer, artifacts, localImages []graph.Artifact) error {
-	// Check that the cluster is reachable.
-	// This gives a better error message when the cluster can't
-	// be reached.
-	if err := failIfClusterIsNotReachable(); err != nil {
-		return fmt.Errorf("unable to connect to Kubernetes: %w", err)
-	}
-
-	ctx, endTrace := instrumentation.StartTrace(ctx, "applyResources_LoadImagesIntoCluster")
-	if len(localImages) > 0 && r.runCtx.Cluster.LoadImages {
-		err := r.loadImagesIntoCluster(ctx, out, localImages)
-		if err != nil {
-			endTrace(instrumentation.TraceEndError(err))
-			return err
-		}
-	}
-	endTrace()
-
 	deployOut, postDeployFn, err := deployutil.WithLogFile(time.Now().Format(deployutil.TimeFormat)+".log", out, r.runCtx.Muted())
 	if err != nil {
 		return err
 	}
 
 	event.DeployInProgress()
-	ctx, endTrace = instrumentation.StartTrace(ctx, "applyResources_Deploying")
+	ctx, endTrace := instrumentation.StartTrace(ctx, "applyResources_Deploying")
 	defer endTrace()
-	namespaces, err := r.deployer.Deploy(ctx, deployOut, artifacts)
+	r.deployer.RegisterLocalImages(localImages)
+	err = r.deployer.Deploy(ctx, deployOut, artifacts)
 	postDeployFn()
 	if err != nil {
 		event.DeployFailed(err)
@@ -78,6 +61,5 @@ func (r *SkaffoldRunner) applyResources(ctx context.Context, out io.Writer, arti
 	}
 	r.hasDeployed = true
 	event.DeployComplete()
-	r.runCtx.UpdateNamespaces(namespaces)
 	return nil
 }

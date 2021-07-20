@@ -42,6 +42,7 @@ type installOpts struct {
 	helmVersion  semver.Version
 	postRenderer string
 	repo         string
+	version      string
 }
 
 // constructOverrideArgs creates the command line arguments for overrides
@@ -146,8 +147,8 @@ func (h *Deployer) installArgs(r latestV1.HelmRelease, builds []graph.Artifact, 
 	// 2) Package chart into a .tgz archive with specific version and then deploy
 	//    that packaged chart. This way user can apply any version and appVersion
 	//    for the chart.
-	if r.Packaged == nil && r.Version != "" {
-		args = append(args, "--version", r.Version)
+	if r.Packaged == nil && o.version != "" {
+		args = append(args, "--version", o.version)
 	}
 
 	args = append(args, o.chartPath)
@@ -173,10 +174,6 @@ func (h *Deployer) installArgs(r latestV1.HelmRelease, builds []graph.Artifact, 
 		return nil, err
 	}
 
-	if len(r.Overrides.Values) != 0 {
-		args = append(args, "-f", constants.HelmOverridesFilename)
-	}
-
 	for k, v := range params {
 		var value string
 
@@ -196,6 +193,10 @@ func (h *Deployer) installArgs(r latestV1.HelmRelease, builds []graph.Artifact, 
 	})
 	if err != nil {
 		return nil, err
+	}
+
+	if len(r.Overrides.Values) != 0 {
+		args = append(args, "-f", constants.HelmOverridesFilename)
 	}
 
 	if r.Wait {

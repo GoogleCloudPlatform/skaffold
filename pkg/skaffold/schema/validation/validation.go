@@ -18,18 +18,21 @@ package validation
 
 import (
 	"context"
-	"errors"
 	"fmt"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/docker/docker/api/types"
+	"github.com/pkg/errors"
 
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/build/misc"
+	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/config"
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/docker"
 	sErrors "github.com/GoogleContainerTools/skaffold/pkg/skaffold/errors"
+	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/parser"
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/runner/runcontext"
 	latestV1 "github.com/GoogleContainerTools/skaffold/pkg/skaffold/schema/latest/v1"
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/util"
@@ -40,26 +43,46 @@ import (
 var (
 	// for testing
 	validateYamltags       = yamltags.ValidateStruct
+	DefaultConfig          = Options{CheckDeploySource: true}
 	dependencyAliasPattern = regexp.MustCompile(`^[a-zA-Z_][a-zA-Z0-9_]*$`)
 )
 
+type Options struct {
+	CheckDeploySource bool
+}
+
+func GetValidationOpts(opts config.SkaffoldOptions) Options {
+	switch opts.Mode() {
+	case config.RunModes.Dev, config.RunModes.Deploy, config.RunModes.Run, config.RunModes.Debug, config.RunModes.Render:
+		return Options{CheckDeploySource: true}
+	default:
+		return Options{}
+	}
+}
+
 // Process checks if the Skaffold pipeline is valid and returns all encountered errors as a concatenated string
-func Process(configs []*latestV1.SkaffoldConfig) error {
+func Process(configs parser.SkaffoldConfigSet, validateConfig Options) error {
 	var errs = validateImageNames(configs)
 	for _, config := range configs {
-		errs = append(errs, visitStructs(config, validateYamltags)...)
-		errs = append(errs, validateDockerNetworkMode(config.Build.Artifacts)...)
-		errs = append(errs, validateCustomDependencies(config.Build.Artifacts)...)
-		errs = append(errs, validateSyncRules(config.Build.Artifacts)...)
-		errs = append(errs, validatePortForwardResources(config.PortForward)...)
-		errs = append(errs, validateJibPluginTypes(config.Build.Artifacts)...)
-		errs = append(errs, validateLogPrefix(config.Deploy.Logs)...)
-		errs = append(errs, validateArtifactTypes(config.Build)...)
-		errs = append(errs, validateTaggingPolicy(config.Build)...)
-		errs = append(errs, validateCustomTest(config.Test)...)
+		var cfgErrs []error
+		cfgErrs = append(cfgErrs, visitStructs(config.SkaffoldConfig, validateYamltags)...)
+		cfgErrs = append(cfgErrs, validateDockerNetworkMode(config.Build.Artifacts)...)
+		cfgErrs = append(cfgErrs, validateCustomDependencies(config.Build.Artifacts)...)
+		cfgErrs = append(cfgErrs, validateSyncRules(config.Build.Artifacts)...)
+		cfgErrs = append(cfgErrs, validatePortForwardResources(config.PortForward)...)
+		cfgErrs = append(cfgErrs, validateJibPluginTypes(config.Build.Artifacts)...)
+		cfgErrs = append(cfgErrs, validateLogPrefix(config.Deploy.Logs)...)
+		cfgErrs = append(cfgErrs, validateArtifactTypes(config.Build)...)
+		cfgErrs = append(cfgErrs, validateTaggingPolicy(config.Build)...)
+		cfgErrs = append(cfgErrs, validateCustomTest(config.Test)...)
+		errs = append(errs, wrapWithContext(config, cfgErrs...)...)
 	}
 	errs = append(errs, validateArtifactDependencies(configs)...)
 	errs = append(errs, validateSingleKubeContext(configs)...)
+	if validateConfig.CheckDeploySource {
+		// TODO(6050) validate for other deploy types - helm, kpt, etc.
+		errs = append(errs, validateKubectlManifests(configs)...)
+	}
 	if len(errs) == 0 {
 		return nil
 	}
@@ -100,35 +123,35 @@ func validateTaggingPolicy(bc latestV1.BuildConfig) (errs []error) {
 
 // validateImageNames makes sure the artifact image names are unique and valid base names,
 // without tags nor digests.
-func validateImageNames(configs []*latestV1.SkaffoldConfig) (errs []error) {
-	seen := make(map[string]bool)
+func validateImageNames(configs parser.SkaffoldConfigSet) (errs []error) {
+	seen := make(map[string]string)
 	for _, c := range configs {
 		for _, a := range c.Build.Artifacts {
-			if seen[a.ImageName] {
-				errs = append(errs, fmt.Errorf("found duplicate images %q: artifact image names must be unique across all configurations", a.ImageName))
+			if prevSource, found := seen[a.ImageName]; found {
+				errs = append(errs, fmt.Errorf("duplicate image %q found in sources %s and %s: artifact image names must be unique across all configurations", a.ImageName, prevSource, c.SourceFile))
 				continue
 			}
 
-			seen[a.ImageName] = true
+			seen[a.ImageName] = c.SourceFile
 			parsed, err := docker.ParseReference(a.ImageName)
 			if err != nil {
-				errs = append(errs, fmt.Errorf("invalid image %q: %w", a.ImageName, err))
+				errs = append(errs, wrapWithContext(c, fmt.Errorf("invalid image %q: %w", a.ImageName, err))...)
 				continue
 			}
 
 			if parsed.Tag != "" {
-				errs = append(errs, fmt.Errorf("invalid image %q: no tag should be specified. Use taggers instead: https://skaffold.dev/docs/how-tos/taggers/", a.ImageName))
+				errs = append(errs, wrapWithContext(c, fmt.Errorf("invalid image %q: no tag should be specified. Use taggers instead: https://skaffold.dev/docs/how-tos/taggers/", a.ImageName))...)
 			}
 
 			if parsed.Digest != "" {
-				errs = append(errs, fmt.Errorf("invalid image %q: no digest should be specified. Use taggers instead: https://skaffold.dev/docs/how-tos/taggers/", a.ImageName))
+				errs = append(errs, wrapWithContext(c, fmt.Errorf("invalid image %q: no digest should be specified. Use taggers instead: https://skaffold.dev/docs/how-tos/taggers/", a.ImageName))...)
 			}
 		}
 	}
 	return
 }
 
-func validateArtifactDependencies(configs []*latestV1.SkaffoldConfig) (errs []error) {
+func validateArtifactDependencies(configs parser.SkaffoldConfigSet) (errs []error) {
 	var artifacts []*latestV1.Artifact
 	for _, c := range configs {
 		artifacts = append(artifacts, c.Build.Artifacts...)
@@ -528,7 +551,7 @@ func validateLogPrefix(lc latestV1.LogsConfig) []error {
 	return nil
 }
 
-func validateSingleKubeContext(configs []*latestV1.SkaffoldConfig) []error {
+func validateSingleKubeContext(configs parser.SkaffoldConfigSet) []error {
 	if len(configs) < 2 {
 		return nil
 	}
@@ -564,4 +587,56 @@ func validateCustomTest(tcs []*latestV1.TestCase) (errs []error) {
 		}
 	}
 	return
+}
+
+func wrapWithContext(config *parser.SkaffoldConfigEntry, errs ...error) []error {
+	var id string
+	if config.Metadata.Name != "" {
+		id = fmt.Sprintf("module %q", config.Metadata.Name)
+	} else {
+		id = fmt.Sprintf("unnamed config at index %d", config.SourceIndex)
+	}
+	for i := range errs {
+		errs[i] = errors.Wrapf(errs[i], "source: %s, %s", config.SourceFile, id)
+	}
+	return errs
+}
+
+// validateKubectlManifests
+// - validates that kubectl manifest files specified in the skaffold config exist
+func validateKubectlManifests(configs parser.SkaffoldConfigSet) (errs []error) {
+	for _, c := range configs {
+		if c.IsRemote {
+			continue
+		}
+		if c.Deploy.KubectlDeploy == nil {
+			continue
+		}
+		// validate that manifest files referenced in config exist
+		for _, pattern := range c.Deploy.KubectlDeploy.Manifests {
+			if util.IsURL(pattern) {
+				continue
+			}
+			// filepaths are all absolute from config parsing step via tags.MakeFilePathsAbsolute
+			expanded, err := filepath.Glob(pattern)
+			if err != nil {
+				errs = append(errs, err)
+			}
+			if len(expanded) == 0 {
+				msg := fmt.Sprintf("skaffold config named %q referenced file %q that could not be found", c.SourceFile, pattern)
+				errs = append(errs, sErrors.NewError(fmt.Errorf(msg),
+					proto.ActionableErr{
+						Message: msg,
+						ErrCode: proto.StatusCode_CONFIG_MISSING_MANIFEST_FILE_ERR,
+						Suggestions: []*proto.Suggestion{
+							{
+								SuggestionCode: proto.SuggestionCode_CONFIG_FIX_MISSING_MANIFEST_FILE,
+								Action:         fmt.Sprintf("Verify that file %q referenced in config %q exists and the path and naming are correct", pattern, c.SourceFile),
+							},
+						},
+					}))
+			}
+		}
+	}
+	return errs
 }

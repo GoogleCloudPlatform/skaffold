@@ -8,12 +8,12 @@ import (
 	fmt "fmt"
 	enums "github.com/GoogleContainerTools/skaffold/proto/enums"
 	proto "github.com/golang/protobuf/proto"
-	empty "github.com/golang/protobuf/ptypes/empty"
-	timestamp "github.com/golang/protobuf/ptypes/timestamp"
 	_ "google.golang.org/genproto/googleapis/api/annotations"
 	grpc "google.golang.org/grpc"
 	codes "google.golang.org/grpc/codes"
 	status "google.golang.org/grpc/status"
+	emptypb "google.golang.org/protobuf/types/known/emptypb"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	math "math"
 )
 
@@ -62,6 +62,18 @@ var TesterType_value = enums.TesterType_value
 const TesterType_UNKNOWN_TEST_TYPE = TesterType(enums.TesterType_UNKNOWN_TEST_TYPE)
 const TesterType_UNIT = TesterType(enums.TesterType_UNIT)
 const TesterType_CONTAINER_STRUCTURE_TEST = TesterType(enums.TesterType_CONTAINER_STRUCTURE_TEST)
+
+// RenderType from public import enums/enums.proto
+type RenderType = enums.RenderType
+
+var RenderType_name = enums.RenderType_name
+var RenderType_value = enums.RenderType_value
+
+const RenderType_UNKNOWN_RENDER_TYPE = RenderType(enums.RenderType_UNKNOWN_RENDER_TYPE)
+const RenderType_RAWK8S = RenderType(enums.RenderType_RAWK8S)
+const RenderType_KUSTOMIZE_MANIFEST = RenderType(enums.RenderType_KUSTOMIZE_MANIFEST)
+const RenderType_HELM_CHART = RenderType(enums.RenderType_HELM_CHART)
+const RenderType_KPT_MANIFEST = RenderType(enums.RenderType_KPT_MANIFEST)
 
 // DeployerType from public import enums/enums.proto
 type DeployerType = enums.DeployerType
@@ -145,6 +157,7 @@ const StatusCode_STATUSCHECK_CONTAINER_TERMINATED = StatusCode(enums.StatusCode_
 const StatusCode_STATUSCHECK_DEPLOYMENT_ROLLOUT_PENDING = StatusCode(enums.StatusCode_STATUSCHECK_DEPLOYMENT_ROLLOUT_PENDING)
 const StatusCode_STATUSCHECK_CONTAINER_RESTARTING = StatusCode(enums.StatusCode_STATUSCHECK_CONTAINER_RESTARTING)
 const StatusCode_STATUSCHECK_UNHEALTHY = StatusCode(enums.StatusCode_STATUSCHECK_UNHEALTHY)
+const StatusCode_STATUSCHECK_CONTAINER_EXEC_ERROR = StatusCode(enums.StatusCode_STATUSCHECK_CONTAINER_EXEC_ERROR)
 const StatusCode_STATUSCHECK_NODE_MEMORY_PRESSURE = StatusCode(enums.StatusCode_STATUSCHECK_NODE_MEMORY_PRESSURE)
 const StatusCode_STATUSCHECK_NODE_DISK_PRESSURE = StatusCode(enums.StatusCode_STATUSCHECK_NODE_DISK_PRESSURE)
 const StatusCode_STATUSCHECK_NODE_NETWORK_UNAVAILABLE = StatusCode(enums.StatusCode_STATUSCHECK_NODE_NETWORK_UNAVAILABLE)
@@ -247,6 +260,7 @@ const StatusCode_CONFIG_PROFILES_NOT_FOUND_ERR = StatusCode(enums.StatusCode_CON
 const StatusCode_CONFIG_UNKNOWN_API_VERSION_ERR = StatusCode(enums.StatusCode_CONFIG_UNKNOWN_API_VERSION_ERR)
 const StatusCode_CONFIG_UNKNOWN_VALIDATOR = StatusCode(enums.StatusCode_CONFIG_UNKNOWN_VALIDATOR)
 const StatusCode_CONFIG_UNKNOWN_TRANSFORMER = StatusCode(enums.StatusCode_CONFIG_UNKNOWN_TRANSFORMER)
+const StatusCode_CONFIG_MISSING_MANIFEST_FILE_ERR = StatusCode(enums.StatusCode_CONFIG_MISSING_MANIFEST_FILE_ERR)
 const StatusCode_INSPECT_UNKNOWN_ERR = StatusCode(enums.StatusCode_INSPECT_UNKNOWN_ERR)
 const StatusCode_INSPECT_BUILD_ENV_ALREADY_EXISTS_ERR = StatusCode(enums.StatusCode_INSPECT_BUILD_ENV_ALREADY_EXISTS_ERR)
 const StatusCode_INSPECT_BUILD_ENV_INCORRECT_TYPE_ERR = StatusCode(enums.StatusCode_INSPECT_BUILD_ENV_INCORRECT_TYPE_ERR)
@@ -312,6 +326,7 @@ const SuggestionCode_CONFIG_CHECK_PROFILE_SELECTION = SuggestionCode(enums.Sugge
 const SuggestionCode_CONFIG_FIX_API_VERSION = SuggestionCode(enums.SuggestionCode_CONFIG_FIX_API_VERSION)
 const SuggestionCode_CONFIG_ALLOWLIST_VALIDATORS = SuggestionCode(enums.SuggestionCode_CONFIG_ALLOWLIST_VALIDATORS)
 const SuggestionCode_CONFIG_ALLOWLIST_transformers = SuggestionCode(enums.SuggestionCode_CONFIG_ALLOWLIST_transformers)
+const SuggestionCode_CONFIG_FIX_MISSING_MANIFEST_FILE = SuggestionCode(enums.SuggestionCode_CONFIG_FIX_MISSING_MANIFEST_FILE)
 const SuggestionCode_INSPECT_USE_MODIFY_OR_NEW_PROFILE = SuggestionCode(enums.SuggestionCode_INSPECT_USE_MODIFY_OR_NEW_PROFILE)
 const SuggestionCode_INSPECT_USE_ADD_BUILD_ENV = SuggestionCode(enums.SuggestionCode_INSPECT_USE_ADD_BUILD_ENV)
 const SuggestionCode_INSPECT_CHECK_INPUT_PROFILE = SuggestionCode(enums.SuggestionCode_INSPECT_CHECK_INPUT_PROFILE)
@@ -2231,12 +2246,12 @@ func (m *DebuggingContainerEvent) GetDebugPorts() map[string]uint32 {
 
 // LogEntry describes an event and a string description of the event.
 type LogEntry struct {
-	Timestamp            *timestamp.Timestamp `protobuf:"bytes,1,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
-	Event                *Event               `protobuf:"bytes,2,opt,name=event,proto3" json:"event,omitempty"`
-	Entry                string               `protobuf:"bytes,3,opt,name=entry,proto3" json:"entry,omitempty"`
-	XXX_NoUnkeyedLiteral struct{}             `json:"-"`
-	XXX_unrecognized     []byte               `json:"-"`
-	XXX_sizecache        int32                `json:"-"`
+	Timestamp            *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	Event                *Event                 `protobuf:"bytes,2,opt,name=event,proto3" json:"event,omitempty"`
+	Entry                string                 `protobuf:"bytes,3,opt,name=entry,proto3" json:"entry,omitempty"`
+	XXX_NoUnkeyedLiteral struct{}               `json:"-"`
+	XXX_unrecognized     []byte                 `json:"-"`
+	XXX_sizecache        int32                  `json:"-"`
 }
 
 func (m *LogEntry) Reset()         { *m = LogEntry{} }
@@ -2264,7 +2279,7 @@ func (m *LogEntry) XXX_DiscardUnknown() {
 
 var xxx_messageInfo_LogEntry proto.InternalMessageInfo
 
-func (m *LogEntry) GetTimestamp() *timestamp.Timestamp {
+func (m *LogEntry) GetTimestamp() *timestamppb.Timestamp {
 	if m != nil {
 		return m.Timestamp
 	}
@@ -2783,22 +2798,22 @@ const _ = grpc.SupportPackageIsVersion6
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://godoc.org/google.golang.org/grpc#ClientConn.NewStream.
 type SkaffoldServiceClient interface {
 	// Returns the state of the current Skaffold execution
-	GetState(ctx context.Context, in *empty.Empty, opts ...grpc.CallOption) (*State, error)
+	GetState(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*State, error)
 	// DEPRECATED. Events should be used instead.
 	// TODO remove (https://github.com/GoogleContainerTools/skaffold/issues/3168)
 	EventLog(ctx context.Context, opts ...grpc.CallOption) (SkaffoldService_EventLogClient, error)
 	// Returns all the events of the current Skaffold execution from the start
-	Events(ctx context.Context, in *empty.Empty, opts ...grpc.CallOption) (SkaffoldService_EventsClient, error)
+	Events(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (SkaffoldService_EventsClient, error)
 	// Allows for a single execution of some or all of the phases (build, sync, deploy) in case autoBuild, autoDeploy or autoSync are disabled.
-	Execute(ctx context.Context, in *UserIntentRequest, opts ...grpc.CallOption) (*empty.Empty, error)
+	Execute(ctx context.Context, in *UserIntentRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// Allows for enabling or disabling automatic build trigger
-	AutoBuild(ctx context.Context, in *TriggerRequest, opts ...grpc.CallOption) (*empty.Empty, error)
+	AutoBuild(ctx context.Context, in *TriggerRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// Allows for enabling or disabling automatic sync trigger
-	AutoSync(ctx context.Context, in *TriggerRequest, opts ...grpc.CallOption) (*empty.Empty, error)
+	AutoSync(ctx context.Context, in *TriggerRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// Allows for enabling or disabling automatic deploy trigger
-	AutoDeploy(ctx context.Context, in *TriggerRequest, opts ...grpc.CallOption) (*empty.Empty, error)
+	AutoDeploy(ctx context.Context, in *TriggerRequest, opts ...grpc.CallOption) (*emptypb.Empty, error)
 	// EXPERIMENTAL. It allows for custom events to be implemented in custom builders for example.
-	Handle(ctx context.Context, in *Event, opts ...grpc.CallOption) (*empty.Empty, error)
+	Handle(ctx context.Context, in *Event, opts ...grpc.CallOption) (*emptypb.Empty, error)
 }
 
 type skaffoldServiceClient struct {
@@ -2809,7 +2824,7 @@ func NewSkaffoldServiceClient(cc grpc.ClientConnInterface) SkaffoldServiceClient
 	return &skaffoldServiceClient{cc}
 }
 
-func (c *skaffoldServiceClient) GetState(ctx context.Context, in *empty.Empty, opts ...grpc.CallOption) (*State, error) {
+func (c *skaffoldServiceClient) GetState(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*State, error) {
 	out := new(State)
 	err := c.cc.Invoke(ctx, "/proto.SkaffoldService/GetState", in, out, opts...)
 	if err != nil {
@@ -2849,7 +2864,7 @@ func (x *skaffoldServiceEventLogClient) Recv() (*LogEntry, error) {
 	return m, nil
 }
 
-func (c *skaffoldServiceClient) Events(ctx context.Context, in *empty.Empty, opts ...grpc.CallOption) (SkaffoldService_EventsClient, error) {
+func (c *skaffoldServiceClient) Events(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (SkaffoldService_EventsClient, error) {
 	stream, err := c.cc.NewStream(ctx, &_SkaffoldService_serviceDesc.Streams[1], "/proto.SkaffoldService/Events", opts...)
 	if err != nil {
 		return nil, err
@@ -2881,8 +2896,8 @@ func (x *skaffoldServiceEventsClient) Recv() (*LogEntry, error) {
 	return m, nil
 }
 
-func (c *skaffoldServiceClient) Execute(ctx context.Context, in *UserIntentRequest, opts ...grpc.CallOption) (*empty.Empty, error) {
-	out := new(empty.Empty)
+func (c *skaffoldServiceClient) Execute(ctx context.Context, in *UserIntentRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, "/proto.SkaffoldService/Execute", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -2890,8 +2905,8 @@ func (c *skaffoldServiceClient) Execute(ctx context.Context, in *UserIntentReque
 	return out, nil
 }
 
-func (c *skaffoldServiceClient) AutoBuild(ctx context.Context, in *TriggerRequest, opts ...grpc.CallOption) (*empty.Empty, error) {
-	out := new(empty.Empty)
+func (c *skaffoldServiceClient) AutoBuild(ctx context.Context, in *TriggerRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, "/proto.SkaffoldService/AutoBuild", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -2899,8 +2914,8 @@ func (c *skaffoldServiceClient) AutoBuild(ctx context.Context, in *TriggerReques
 	return out, nil
 }
 
-func (c *skaffoldServiceClient) AutoSync(ctx context.Context, in *TriggerRequest, opts ...grpc.CallOption) (*empty.Empty, error) {
-	out := new(empty.Empty)
+func (c *skaffoldServiceClient) AutoSync(ctx context.Context, in *TriggerRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, "/proto.SkaffoldService/AutoSync", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -2908,8 +2923,8 @@ func (c *skaffoldServiceClient) AutoSync(ctx context.Context, in *TriggerRequest
 	return out, nil
 }
 
-func (c *skaffoldServiceClient) AutoDeploy(ctx context.Context, in *TriggerRequest, opts ...grpc.CallOption) (*empty.Empty, error) {
-	out := new(empty.Empty)
+func (c *skaffoldServiceClient) AutoDeploy(ctx context.Context, in *TriggerRequest, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, "/proto.SkaffoldService/AutoDeploy", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -2917,8 +2932,8 @@ func (c *skaffoldServiceClient) AutoDeploy(ctx context.Context, in *TriggerReque
 	return out, nil
 }
 
-func (c *skaffoldServiceClient) Handle(ctx context.Context, in *Event, opts ...grpc.CallOption) (*empty.Empty, error) {
-	out := new(empty.Empty)
+func (c *skaffoldServiceClient) Handle(ctx context.Context, in *Event, opts ...grpc.CallOption) (*emptypb.Empty, error) {
+	out := new(emptypb.Empty)
 	err := c.cc.Invoke(ctx, "/proto.SkaffoldService/Handle", in, out, opts...)
 	if err != nil {
 		return nil, err
@@ -2929,50 +2944,50 @@ func (c *skaffoldServiceClient) Handle(ctx context.Context, in *Event, opts ...g
 // SkaffoldServiceServer is the server API for SkaffoldService service.
 type SkaffoldServiceServer interface {
 	// Returns the state of the current Skaffold execution
-	GetState(context.Context, *empty.Empty) (*State, error)
+	GetState(context.Context, *emptypb.Empty) (*State, error)
 	// DEPRECATED. Events should be used instead.
 	// TODO remove (https://github.com/GoogleContainerTools/skaffold/issues/3168)
 	EventLog(SkaffoldService_EventLogServer) error
 	// Returns all the events of the current Skaffold execution from the start
-	Events(*empty.Empty, SkaffoldService_EventsServer) error
+	Events(*emptypb.Empty, SkaffoldService_EventsServer) error
 	// Allows for a single execution of some or all of the phases (build, sync, deploy) in case autoBuild, autoDeploy or autoSync are disabled.
-	Execute(context.Context, *UserIntentRequest) (*empty.Empty, error)
+	Execute(context.Context, *UserIntentRequest) (*emptypb.Empty, error)
 	// Allows for enabling or disabling automatic build trigger
-	AutoBuild(context.Context, *TriggerRequest) (*empty.Empty, error)
+	AutoBuild(context.Context, *TriggerRequest) (*emptypb.Empty, error)
 	// Allows for enabling or disabling automatic sync trigger
-	AutoSync(context.Context, *TriggerRequest) (*empty.Empty, error)
+	AutoSync(context.Context, *TriggerRequest) (*emptypb.Empty, error)
 	// Allows for enabling or disabling automatic deploy trigger
-	AutoDeploy(context.Context, *TriggerRequest) (*empty.Empty, error)
+	AutoDeploy(context.Context, *TriggerRequest) (*emptypb.Empty, error)
 	// EXPERIMENTAL. It allows for custom events to be implemented in custom builders for example.
-	Handle(context.Context, *Event) (*empty.Empty, error)
+	Handle(context.Context, *Event) (*emptypb.Empty, error)
 }
 
 // UnimplementedSkaffoldServiceServer can be embedded to have forward compatible implementations.
 type UnimplementedSkaffoldServiceServer struct {
 }
 
-func (*UnimplementedSkaffoldServiceServer) GetState(ctx context.Context, req *empty.Empty) (*State, error) {
+func (*UnimplementedSkaffoldServiceServer) GetState(ctx context.Context, req *emptypb.Empty) (*State, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetState not implemented")
 }
 func (*UnimplementedSkaffoldServiceServer) EventLog(srv SkaffoldService_EventLogServer) error {
 	return status.Errorf(codes.Unimplemented, "method EventLog not implemented")
 }
-func (*UnimplementedSkaffoldServiceServer) Events(req *empty.Empty, srv SkaffoldService_EventsServer) error {
+func (*UnimplementedSkaffoldServiceServer) Events(req *emptypb.Empty, srv SkaffoldService_EventsServer) error {
 	return status.Errorf(codes.Unimplemented, "method Events not implemented")
 }
-func (*UnimplementedSkaffoldServiceServer) Execute(ctx context.Context, req *UserIntentRequest) (*empty.Empty, error) {
+func (*UnimplementedSkaffoldServiceServer) Execute(ctx context.Context, req *UserIntentRequest) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Execute not implemented")
 }
-func (*UnimplementedSkaffoldServiceServer) AutoBuild(ctx context.Context, req *TriggerRequest) (*empty.Empty, error) {
+func (*UnimplementedSkaffoldServiceServer) AutoBuild(ctx context.Context, req *TriggerRequest) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AutoBuild not implemented")
 }
-func (*UnimplementedSkaffoldServiceServer) AutoSync(ctx context.Context, req *TriggerRequest) (*empty.Empty, error) {
+func (*UnimplementedSkaffoldServiceServer) AutoSync(ctx context.Context, req *TriggerRequest) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AutoSync not implemented")
 }
-func (*UnimplementedSkaffoldServiceServer) AutoDeploy(ctx context.Context, req *TriggerRequest) (*empty.Empty, error) {
+func (*UnimplementedSkaffoldServiceServer) AutoDeploy(ctx context.Context, req *TriggerRequest) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AutoDeploy not implemented")
 }
-func (*UnimplementedSkaffoldServiceServer) Handle(ctx context.Context, req *Event) (*empty.Empty, error) {
+func (*UnimplementedSkaffoldServiceServer) Handle(ctx context.Context, req *Event) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Handle not implemented")
 }
 
@@ -2981,7 +2996,7 @@ func RegisterSkaffoldServiceServer(s *grpc.Server, srv SkaffoldServiceServer) {
 }
 
 func _SkaffoldService_GetState_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(empty.Empty)
+	in := new(emptypb.Empty)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -2993,7 +3008,7 @@ func _SkaffoldService_GetState_Handler(srv interface{}, ctx context.Context, dec
 		FullMethod: "/proto.SkaffoldService/GetState",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(SkaffoldServiceServer).GetState(ctx, req.(*empty.Empty))
+		return srv.(SkaffoldServiceServer).GetState(ctx, req.(*emptypb.Empty))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -3025,7 +3040,7 @@ func (x *skaffoldServiceEventLogServer) Recv() (*LogEntry, error) {
 }
 
 func _SkaffoldService_Events_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(empty.Empty)
+	m := new(emptypb.Empty)
 	if err := stream.RecvMsg(m); err != nil {
 		return err
 	}

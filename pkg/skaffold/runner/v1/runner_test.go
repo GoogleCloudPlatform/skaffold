@@ -42,6 +42,7 @@ import (
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/runner/runcontext"
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/schema/defaults"
 	latestV1 "github.com/GoogleContainerTools/skaffold/pkg/skaffold/schema/latest/v1"
+	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/status"
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/sync"
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/tag"
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/test"
@@ -116,6 +117,15 @@ func (t *TestBench) GetLogger() log.Logger {
 	return &log.NoopLogger{}
 }
 
+func (t *TestBench) GetStatusMonitor() status.Monitor {
+	return &status.NoopMonitor{}
+}
+
+func (t *TestBench) GetSyncer() sync.Syncer {
+	return t
+}
+
+func (t *TestBench) RegisterLocalImages(_ []graph.Artifact) {}
 func (t *TestBench) TrackBuildArtifacts(_ []graph.Artifact) {}
 
 func (t *TestBench) TestDependencies(*latestV1.Artifact) ([]string, error) { return nil, nil }
@@ -151,7 +161,7 @@ func (t *TestBench) Build(_ context.Context, _ io.Writer, _ tag.ImageTags, artif
 	return builds, nil
 }
 
-func (t *TestBench) Sync(_ context.Context, item *sync.Item) error {
+func (t *TestBench) Sync(_ context.Context, _ io.Writer, item *sync.Item) error {
 	if len(t.syncErrors) > 0 {
 		err := t.syncErrors[0]
 		t.syncErrors = t.syncErrors[1:]
@@ -177,17 +187,17 @@ func (t *TestBench) Test(_ context.Context, _ io.Writer, artifacts []graph.Artif
 	return nil
 }
 
-func (t *TestBench) Deploy(_ context.Context, _ io.Writer, artifacts []graph.Artifact) ([]string, error) {
+func (t *TestBench) Deploy(_ context.Context, _ io.Writer, artifacts []graph.Artifact) error {
 	if len(t.deployErrors) > 0 {
 		err := t.deployErrors[0]
 		t.deployErrors = t.deployErrors[1:]
 		if err != nil {
-			return nil, err
+			return err
 		}
 	}
 
 	t.currentActions.Deployed = findTags(artifacts)
-	return t.namespaces, nil
+	return nil
 }
 
 func (t *TestBench) Render(context.Context, io.Writer, []graph.Artifact, bool, string) error {
@@ -277,7 +287,6 @@ func createRunner(t *testutil.T, testBench *TestBench, monitor filemon.Monitor, 
 
 	// TODO(yuwenma):builder.builder looks weird. Avoid the nested struct.
 	runner.Builder.Builder = testBench
-	runner.syncer = testBench
 	runner.Tester = testBench
 	runner.deployer = testBench
 	runner.listener = testBench
@@ -423,11 +432,11 @@ func TestNewForConfig(t *testing.T) {
 				},
 			},
 			expectedTester: &test.FullTester{},
-			expectedDeployer: deploy.DeployerMux([]deploy.Deployer{
+			expectedDeployer: deploy.NewDeployerMux([]deploy.Deployer{
 				&helm.Deployer{},
 				&kubectl.Deployer{},
 				&kustomize.Deployer{},
-			}),
+			}, false),
 		},
 	}
 	for _, test := range tests {

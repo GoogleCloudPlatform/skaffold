@@ -25,8 +25,7 @@ import (
 
 	//nolint:golint,staticcheck
 	"github.com/golang/protobuf/jsonpb"
-	"github.com/golang/protobuf/ptypes"
-	"github.com/golang/protobuf/ptypes/timestamp"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/constants"
 	sErrors "github.com/GoogleContainerTools/skaffold/pkg/skaffold/errors"
@@ -218,6 +217,10 @@ func emptyStateWithArtifacts(builds map[string]string, metadata *proto.Metadata,
 			Status:     NotStarted,
 			StatusCode: proto.StatusCode_OK,
 		},
+		RenderState: &proto.RenderState{
+			Status:     NotStarted,
+			StatusCode: proto.StatusCode_OK,
+		},
 		DeployState: &proto.DeployState{
 			Status:      NotStarted,
 			AutoTrigger: autoDeploy,
@@ -377,15 +380,13 @@ func (ev *eventHandler) setState(state proto.State) {
 }
 
 func (ev *eventHandler) handle(event *proto.Event) {
-	go func(t *timestamp.Timestamp) {
-		event.Timestamp = t
-		ev.eventChan <- event
-		if _, ok := event.GetEventType().(*proto.Event_TerminationEvent); ok {
-			// close the event channel indicating there are no more events to all the
-			// receivers
-			close(ev.eventChan)
-		}
-	}(ptypes.TimestampNow())
+	event.Timestamp = timestamppb.Now()
+	ev.eventChan <- event
+	if _, ok := event.GetEventType().(*proto.Event_TerminationEvent); ok {
+		// close the event channel indicating there are no more events to all the
+		// receivers
+		close(ev.eventChan)
+	}
 }
 
 func (ev *eventHandler) handleTaskEvent(e *proto.TaskEvent) {
@@ -415,6 +416,11 @@ func (ev *eventHandler) handleExec(event *proto.Event) {
 		te := e.TestEvent
 		ev.stateLock.Lock()
 		ev.state.TestState.Status = te.Status
+		ev.stateLock.Unlock()
+	case *proto.Event_RenderEvent:
+		te := e.RenderEvent
+		ev.stateLock.Lock()
+		ev.state.RenderState.Status = te.Status
 		ev.stateLock.Unlock()
 	case *proto.Event_DeploySubtaskEvent:
 		de := e.DeploySubtaskEvent

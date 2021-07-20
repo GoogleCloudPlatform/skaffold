@@ -22,6 +22,7 @@ import (
 	"io"
 
 	"github.com/sirupsen/logrus"
+	"golang.org/x/sync/singleflight"
 	v1 "k8s.io/api/core/v1"
 
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/config"
@@ -35,6 +36,8 @@ import (
 )
 
 type Config interface {
+	kubectl.Config
+
 	Mode() config.RunMode
 	PortForwardResources() []*latestV1.PortForwardResource
 	PortForwardOptions() config.PortForwardOptions
@@ -48,11 +51,17 @@ type Forwarder interface {
 
 // ForwarderManager manages all forwarders
 type ForwarderManager struct {
-	forwarders []Forwarder
+	forwarders   []Forwarder
+	entryManager *EntryManager
+	label        string
+
+	singleRun  singleflight.Group
+	namespaces *[]string
 }
 
 // NewForwarderManager returns a new port manager which handles starting and stopping port forwarding
-func NewForwarderManager(cli *kubectl.CLI, podSelector kubernetes.PodSelector, label string, runMode config.RunMode, options config.PortForwardOptions, userDefined []*latestV1.PortForwardResource) *ForwarderManager {
+func NewForwarderManager(cli *kubectl.CLI, podSelector kubernetes.PodSelector, label string, runMode config.RunMode, namespaces *[]string,
+	options config.PortForwardOptions, userDefined []*latestV1.PortForwardResource) *ForwarderManager {
 	if !options.Enabled() {
 		return nil
 	}
@@ -73,7 +82,11 @@ func NewForwarderManager(cli *kubectl.CLI, podSelector kubernetes.PodSelector, l
 	}
 
 	return &ForwarderManager{
-		forwarders: forwarders,
+		forwarders:   forwarders,
+		entryManager: entryManager,
+		label:        label,
+		singleRun:    singleflight.Group{},
+		namespaces:   namespaces,
 	}
 }
 
@@ -110,18 +123,27 @@ func debugPorts(pod *v1.Pod, c v1.Container) []v1.ContainerPort {
 }
 
 // Start begins all forwarders managed by the ForwarderManager
-func (p *ForwarderManager) Start(ctx context.Context, out io.Writer, namespaces []string) error {
+func (p *ForwarderManager) Start(ctx context.Context, out io.Writer) error {
 	// Port forwarding is not enabled.
 	if p == nil {
 		return nil
 	}
 
+	_, err, _ := p.singleRun.Do(p.label, func() (interface{}, error) {
+		return struct{}{}, p.start(ctx, out)
+	})
+	return err
+}
+
+// Start begins all forwarders managed by the ForwarderManager
+func (p *ForwarderManager) start(ctx context.Context, out io.Writer) error {
 	eventV2.TaskInProgress(constants.PortForward, "Port forward URLs")
 	ctx, endTrace := instrumentation.StartTrace(ctx, "Start")
 	defer endTrace()
 
+	p.entryManager.Start(out)
 	for _, f := range p.forwarders {
-		if err := f.Start(ctx, out, namespaces); err != nil {
+		if err := f.Start(ctx, out, *p.namespaces); err != nil {
 			eventV2.TaskFailed(constants.PortForward, err)
 			endTrace(instrumentation.TraceEndError(err))
 			return err
@@ -132,13 +154,19 @@ func (p *ForwarderManager) Start(ctx context.Context, out io.Writer, namespaces 
 	return nil
 }
 
-// Stop cleans up and terminates all forwarders managed by the ForwarderManager
 func (p *ForwarderManager) Stop() {
 	// Port forwarding is not enabled.
 	if p == nil {
 		return
 	}
+	p.singleRun.Do(p.label, func() (interface{}, error) {
+		p.stop()
+		return struct{}{}, nil
+	})
+}
 
+// Stop cleans up and terminates all forwarders managed by the ForwarderManager
+func (p *ForwarderManager) stop() {
 	for _, f := range p.forwarders {
 		f.Stop()
 	}

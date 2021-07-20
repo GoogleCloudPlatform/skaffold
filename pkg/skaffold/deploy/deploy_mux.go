@@ -32,17 +32,30 @@ import (
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/kubernetes/manifest"
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/log"
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/output"
+	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/status"
+	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/sync"
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/util"
 )
 
 // DeployerMux forwards all method calls to the deployers it contains.
 // When encountering an error, it aborts and returns the error. Otherwise,
 // it collects the results and returns it in bulk.
-type DeployerMux []Deployer
+type DeployerMux struct {
+	iterativeStatusCheck bool
+	deployers            []Deployer
+}
+
+func NewDeployerMux(deployers []Deployer, iterativeStatusCheck bool) Deployer {
+	return DeployerMux{deployers: deployers, iterativeStatusCheck: iterativeStatusCheck}
+}
+
+func (m DeployerMux) GetDeployers() []Deployer {
+	return m.deployers
+}
 
 func (m DeployerMux) GetAccessor() access.Accessor {
 	var accessors access.AccessorMux
-	for _, deployer := range m {
+	for _, deployer := range m.deployers {
 		accessors = append(accessors, deployer.GetAccessor())
 	}
 	return accessors
@@ -50,7 +63,7 @@ func (m DeployerMux) GetAccessor() access.Accessor {
 
 func (m DeployerMux) GetDebugger() debug.Debugger {
 	var debuggers debug.DebuggerMux
-	for _, deployer := range m {
+	for _, deployer := range m.deployers {
 		debuggers = append(debuggers, deployer.GetDebugger())
 	}
 	return debuggers
@@ -58,38 +71,62 @@ func (m DeployerMux) GetDebugger() debug.Debugger {
 
 func (m DeployerMux) GetLogger() log.Logger {
 	var loggers log.LoggerMux
-	for _, deployer := range m {
+	for _, deployer := range m.deployers {
 		loggers = append(loggers, deployer.GetLogger())
 	}
 	return loggers
 }
 
-func (m DeployerMux) Deploy(ctx context.Context, w io.Writer, as []graph.Artifact) ([]string, error) {
-	seenNamespaces := util.NewStringSet()
+func (m DeployerMux) GetStatusMonitor() status.Monitor {
+	var monitors status.MonitorMux
+	for _, deployer := range m.deployers {
+		monitors = append(monitors, deployer.GetStatusMonitor())
+	}
+	return monitors
+}
 
-	for i, deployer := range m {
+func (m DeployerMux) GetSyncer() sync.Syncer {
+	var syncers sync.SyncerMux
+	for _, deployer := range m.deployers {
+		syncers = append(syncers, deployer.GetSyncer())
+	}
+	return syncers
+}
+
+func (m DeployerMux) RegisterLocalImages(images []graph.Artifact) {
+	for _, deployer := range m.deployers {
+		deployer.RegisterLocalImages(images)
+	}
+}
+
+func (m DeployerMux) Deploy(ctx context.Context, w io.Writer, as []graph.Artifact) error {
+	for i, deployer := range m.deployers {
 		eventV2.DeployInProgress(i)
-		w = output.WithEventContext(w, constants.Deploy, strconv.Itoa(i), "skaffold")
+		w = output.WithEventContext(w, constants.Deploy, strconv.Itoa(i))
 		ctx, endTrace := instrumentation.StartTrace(ctx, "Deploy")
 
-		namespaces, err := deployer.Deploy(ctx, w, as)
-		if err != nil {
+		if err := deployer.Deploy(ctx, w, as); err != nil {
 			eventV2.DeployFailed(i, err)
 			endTrace(instrumentation.TraceEndError(err))
-			return nil, err
+			return err
 		}
-		seenNamespaces.Insert(namespaces...)
-
+		if m.iterativeStatusCheck {
+			if err := deployer.GetStatusMonitor().Check(ctx, w); err != nil {
+				eventV2.DeployFailed(i, err)
+				endTrace(instrumentation.TraceEndError(err))
+				return err
+			}
+		}
 		eventV2.DeploySucceeded(i)
 		endTrace()
 	}
 
-	return seenNamespaces.ToList(), nil
+	return nil
 }
 
 func (m DeployerMux) Dependencies() ([]string, error) {
 	deps := util.NewStringSet()
-	for _, deployer := range m {
+	for _, deployer := range m.deployers {
 		result, err := deployer.Dependencies()
 		if err != nil {
 			return nil, err
@@ -100,7 +137,7 @@ func (m DeployerMux) Dependencies() ([]string, error) {
 }
 
 func (m DeployerMux) Cleanup(ctx context.Context, w io.Writer) error {
-	for _, deployer := range m {
+	for _, deployer := range m.deployers {
 		ctx, endTrace := instrumentation.StartTrace(ctx, "Cleanup")
 		if err := deployer.Cleanup(ctx, w); err != nil {
 			return err
@@ -112,7 +149,7 @@ func (m DeployerMux) Cleanup(ctx context.Context, w io.Writer) error {
 
 func (m DeployerMux) Render(ctx context.Context, w io.Writer, as []graph.Artifact, offline bool, filepath string) error {
 	resources, buf := []string{}, &bytes.Buffer{}
-	for _, deployer := range m {
+	for _, deployer := range m.deployers {
 		ctx, endTrace := instrumentation.StartTrace(ctx, "Render")
 		buf.Reset()
 		if err := deployer.Render(ctx, buf, as, offline, "" /* never write to files */); err != nil {

@@ -26,9 +26,11 @@ import (
 	"time"
 
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/config"
-	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/deploy"
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/deploy/kubectl"
+	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/deploy/label"
+	deployutil "github.com/GoogleContainerTools/skaffold/pkg/skaffold/deploy/util"
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/graph"
+	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/kubernetes/client"
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/runner/runcontext"
 	latestV1 "github.com/GoogleContainerTools/skaffold/pkg/skaffold/schema/latest/v1"
 	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/util"
@@ -168,6 +170,7 @@ func TestKustomizeDeploy(t *testing.T) {
 		testutil.Run(t, test.description, func(t *testutil.T) {
 			t.SetEnvs(test.envs)
 			t.Override(&util.DefaultExecCommand, test.commands)
+			t.Override(&client.Client, deployutil.MockK8sClient)
 			t.Override(&KustomizeBinaryCheck, func() bool { return test.kustomizeCmdPresent })
 			t.NewTempDir().
 				Chdir()
@@ -177,7 +180,7 @@ func TestKustomizeDeploy(t *testing.T) {
 				skaffoldNamespaceOption = kubectl.TestNamespace
 			}
 
-			k, _, err := NewDeployer(&kustomizeConfig{
+			k, err := NewDeployer(&kustomizeConfig{
 				workingDir: ".",
 				force:      test.forceDeploy,
 				waitForDeletions: config.WaitForDeletions{
@@ -187,9 +190,9 @@ func TestKustomizeDeploy(t *testing.T) {
 				},
 				RunContext: runcontext.RunContext{Opts: config.SkaffoldOptions{
 					Namespace: skaffoldNamespaceOption,
-				}}}, nil, deploy.NoopComponentProvider, &test.kustomize)
+				}}}, &label.DefaultLabeller{}, &test.kustomize)
 			t.RequireNoError(err)
-			_, err = k.Deploy(context.Background(), ioutil.Discard, test.builds)
+			err = k.Deploy(context.Background(), ioutil.Discard, test.builds)
 
 			t.CheckError(test.shouldErr, err)
 		})
@@ -212,7 +215,7 @@ func TestKustomizeCleanup(t *testing.T) {
 			},
 			commands: testutil.
 				CmdRunOut("kustomize build "+tmpDir.Root(), kubectl.DeploymentWebYAML).
-				AndRun("kubectl --context kubecontext --namespace testNamespace delete --ignore-not-found=true -f -"),
+				AndRun("kubectl --context kubecontext --namespace testNamespace delete --ignore-not-found=true --wait=false -f -"),
 		},
 		{
 			description: "cleanup success with multiple kustomizations",
@@ -222,7 +225,7 @@ func TestKustomizeCleanup(t *testing.T) {
 			commands: testutil.
 				CmdRunOut("kustomize build "+tmpDir.Path("a"), kubectl.DeploymentWebYAML).
 				AndRunOut("kustomize build "+tmpDir.Path("b"), kubectl.DeploymentAppYAML).
-				AndRun("kubectl --context kubecontext --namespace testNamespace delete --ignore-not-found=true -f -"),
+				AndRun("kubectl --context kubecontext --namespace testNamespace delete --ignore-not-found=true --wait=false -f -"),
 		},
 		{
 			description: "cleanup error",
@@ -231,7 +234,7 @@ func TestKustomizeCleanup(t *testing.T) {
 			},
 			commands: testutil.
 				CmdRunOut("kustomize build "+tmpDir.Root(), kubectl.DeploymentWebYAML).
-				AndRunErr("kubectl --context kubecontext --namespace testNamespace delete --ignore-not-found=true -f -", errors.New("BUG")),
+				AndRunErr("kubectl --context kubecontext --namespace testNamespace delete --ignore-not-found=true --wait=false -f -", errors.New("BUG")),
 			shouldErr: true,
 		},
 		{
@@ -249,11 +252,11 @@ func TestKustomizeCleanup(t *testing.T) {
 			t.Override(&util.DefaultExecCommand, test.commands)
 			t.Override(&KustomizeBinaryCheck, func() bool { return true })
 
-			k, _, err := NewDeployer(&kustomizeConfig{
+			k, err := NewDeployer(&kustomizeConfig{
 				workingDir: tmpDir.Root(),
 				RunContext: runcontext.RunContext{Opts: config.SkaffoldOptions{
 					Namespace: kubectl.TestNamespace}},
-			}, nil, deploy.NoopComponentProvider, &test.kustomize)
+			}, &label.DefaultLabeller{}, &test.kustomize)
 			t.RequireNoError(err)
 			err = k.Cleanup(context.Background(), ioutil.Discard)
 
@@ -455,7 +458,7 @@ func TestDependenciesForKustomization(t *testing.T) {
 				tmpDir.Write(path, contents)
 			}
 
-			k, _, err := NewDeployer(&kustomizeConfig{}, nil, deploy.NoopComponentProvider, &latestV1.KustomizeDeploy{KustomizePaths: kustomizePaths})
+			k, err := NewDeployer(&kustomizeConfig{}, &label.DefaultLabeller{}, &latestV1.KustomizeDeploy{KustomizePaths: kustomizePaths})
 			t.RequireNoError(err)
 
 			deps, err := k.Dependencies()
@@ -538,7 +541,7 @@ func TestKustomizeRender(t *testing.T) {
 	tests := []struct {
 		description    string
 		builds         []graph.Artifact
-		labels         map[string]string
+		labels         []string
 		kustomizations []kustomizationCall
 		expected       string
 		shouldErr      bool
@@ -595,7 +598,7 @@ spec:
 					Tag:       "gcr.io/project/image2:tag2",
 				},
 			},
-			labels: map[string]string{"user/label": "test"},
+			labels: []string{"user/label=test"},
 			kustomizations: []kustomizationCall{
 				{
 					folder: ".",
@@ -696,10 +699,12 @@ spec:
 			t.Override(&util.DefaultExecCommand, fakeCmd)
 			t.NewTempDir().Chdir()
 
-			k, _, err := NewDeployer(&kustomizeConfig{
+			labeller := label.NewLabeller(false, test.labels, "")
+
+			k, err := NewDeployer(&kustomizeConfig{
 				workingDir: ".",
 				RunContext: runcontext.RunContext{Opts: config.SkaffoldOptions{Namespace: kubectl.TestNamespace}},
-			}, test.labels, deploy.NoopComponentProvider, &latestV1.KustomizeDeploy{
+			}, labeller, &latestV1.KustomizeDeploy{
 				KustomizePaths: kustomizationPaths,
 			})
 			t.RequireNoError(err)
@@ -719,8 +724,9 @@ type kustomizeConfig struct {
 	waitForDeletions      config.WaitForDeletions
 }
 
-func (c *kustomizeConfig) ForceDeploy() bool                         { return c.force }
-func (c *kustomizeConfig) WaitForDeletions() config.WaitForDeletions { return c.waitForDeletions }
-func (c *kustomizeConfig) WorkingDir() string                        { return c.workingDir }
-func (c *kustomizeConfig) GetKubeContext() string                    { return kubectl.TestKubeContext }
-func (c *kustomizeConfig) GetKubeNamespace() string                  { return c.Opts.Namespace }
+func (c *kustomizeConfig) ForceDeploy() bool                                     { return c.force }
+func (c *kustomizeConfig) WaitForDeletions() config.WaitForDeletions             { return c.waitForDeletions }
+func (c *kustomizeConfig) WorkingDir() string                                    { return c.workingDir }
+func (c *kustomizeConfig) GetKubeContext() string                                { return kubectl.TestKubeContext }
+func (c *kustomizeConfig) GetKubeNamespace() string                              { return c.Opts.Namespace }
+func (c *kustomizeConfig) PortForwardResources() []*latestV1.PortForwardResource { return nil }
